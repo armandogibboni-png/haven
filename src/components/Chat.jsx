@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { getT } from "../i18n.js";
 import { buildSystemPrompt } from "../prompts.js";
+import { trackChatSession, touchLastActivity } from "../metrics.js";
 
 const MODEL = "claude-sonnet-4-20250514";
 
@@ -33,6 +34,8 @@ export default function Chat({ member, family, onBack }) {
     const newHistory = [...messages, userMsg];
     setMessages(newHistory);
     setLoading(true);
+    trackChatSession(member.role);
+    touchLastActivity(member.role);
 
     try {
       const resp = await fetch("/api/claude", {
