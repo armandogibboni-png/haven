@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { LANGS, getT } from "../i18n.js";
 
-const ROLES = ["parent","partner","child","sibling","grandparent","caregiver","other"];
+const ROLES = ["parent","partner","child","sibling","grandparent","caregiver","teacher","other"];
 const MS_ROLES = ["child","sibling"]; // only these can have MS flag
+const PIN_REQUIRED_ROLES = ["teacher"]; // PIN mandatory for these roles
 
 const ROLE_EMOJIS = {
   parent: ["🧑‍👧‍👦","👨","👩","🧑"],
@@ -11,6 +12,7 @@ const ROLE_EMOJIS = {
   sibling: ["🚀","🎮","🎨","⚽","🎸","🦄","🌈"],
   grandparent: ["🌻","🌿","☕","📚","🧶"],
   caregiver: ["🤝","💙","🌸","🌿"],
+  teacher: ["🏫","📚","✏️","🎓","🌍"],
   other: ["✨","🌙","⭐","🍃"],
 };
 
@@ -21,6 +23,7 @@ const ROLE_COLORS = {
   sibling:     "#4A89DC",
   grandparent: "#C4785A",
   caregiver:   "#6B8E6B",
+  teacher:     "#1A4A5C",
   other:       "#8A8A8A",
 };
 
@@ -245,6 +248,8 @@ export default function Enrollment({ onComplete }) {
 /* ── Member Form Component ───────────────────────────── */
 function MemberForm({ member, setField, onSave, onCancel, t }) {
   const emojis = ROLE_EMOJIS[member.role] || ["✨","🌙","⭐"];
+  const isTeacher = member.role === "teacher";
+  const pinRequired = PIN_REQUIRED_ROLES.includes(member.role);
   const canMS = MS_ROLES.includes(member.role);
 
   return (
@@ -313,9 +318,18 @@ function MemberForm({ member, setField, onSave, onCancel, t }) {
           </div>
         </div>
 
+        {/* Teacher consent notice */}
+        {isTeacher && (
+          <div style={{ padding: "12px 14px", borderRadius: "var(--radius-sm)", background: "#1A4A5C11", border: "1.5px solid #1A4A5C44", marginBottom: 16 }}>
+            <p style={{ fontSize: ".82rem", color: "#1A4A5C", lineHeight: 1.6 }}>
+              🏫 {t("teacherConsentNote")}
+            </p>
+          </div>
+        )}
+
         {/* PIN */}
         <div style={{ marginBottom: 16 }}>
-          <label>{t("memberPin")}</label>
+          <label>{t("memberPin")}{pinRequired ? " *" : ""}</label>
           <input
             type="tel"
             inputMode="numeric"
@@ -324,9 +338,11 @@ function MemberForm({ member, setField, onSave, onCancel, t }) {
             placeholder="- - - -"
             value={member.pin}
             onChange={e => setField("pin", e.target.value.replace(/\D/g, "").slice(0,4))}
-            style={{ letterSpacing: "0.5em", fontSize: "1.1rem" }}
+            style={{ letterSpacing: "0.5em", fontSize: "1.1rem", borderColor: pinRequired && !member.pin ? "#E8A838" : undefined }}
           />
-          <p style={{ color: "var(--muted)", fontSize: ".8rem", marginTop: 4 }}>{t("memberPinHint")}</p>
+          <p style={{ color: pinRequired ? "#E8A838" : "var(--muted)", fontSize: ".8rem", marginTop: 4, fontWeight: pinRequired ? 600 : 400 }}>
+            {pinRequired ? t("teacherPinRequired") : t("memberPinHint")}
+          </p>
         </div>
 
         {/* MS Flag */}
@@ -361,7 +377,7 @@ function MemberForm({ member, setField, onSave, onCancel, t }) {
           className="btn btn-primary"
           style={{ width: "100%" }}
           onClick={onSave}
-          disabled={!member.name.trim()}
+          disabled={!member.name.trim() || (pinRequired && member.pin.length !== 4)}
         >
           {t("save")} ✓
         </button>
