@@ -6,13 +6,14 @@ import FamilyBoard from "./components/FamilyBoard.jsx";
 import FriendsRelatives from "./components/FriendsRelatives.jsx";
 import ConsentScreen from "./components/ConsentScreen.jsx";
 import PrivacyPolicy from "./components/PrivacyPolicy.jsx";
+import TeacherHome from "./components/TeacherHome.jsx";
 import Toolbox from "./toolbox/Toolbox.jsx";
 import { getT } from "./i18n.js";
 
 const HAVEN_KEY    = "haven_family_v1";
 const CONSENT_KEY  = "haven_consent_v1";
 const PARENT_ROLES = ["parent","partner","caregiver"];
-const SPECIAL_SHARED = ["board","friends","together","settings"];
+const TEACHER_ROLE = "teacher";
 
 export default function App() {
   const [family, setFamily] = useState(null);
@@ -44,12 +45,14 @@ export default function App() {
   };
 
   const openMember = (member, target = "chat") => {
-    if (member.pin) {
-      setPinPending({ member, target });
-    } else {
-      setActiveMember(member);
-      setScreen(target);
+    // Teacher role always goes to TeacherHome
+    if (member.role === TEACHER_ROLE) {
+      if (member.pin) { setPinPending({ member, target: "teacher" }); }
+      else { setActiveMember(member); setScreen("teacher"); }
+      return;
     }
+    if (member.pin) { setPinPending({ member, target }); }
+    else { setActiveMember(member); setScreen(target); }
   };
 
   const goHome = () => { setScreen("home"); setActiveMember(null); };
@@ -88,6 +91,7 @@ export default function App() {
     />
   );
 
+  if (screen === "teacher")  return <TeacherHome teacher={activeMember} family={family} onBack={goHome} />;
   if (screen === "chat")    return <Chat member={activeMember} family={family} onBack={goHome} />;
   if (screen === "toolbox") return <Toolbox member={activeMember} family={family} onBack={goHome} />;
   if (screen === "board")   return <FamilyBoard family={family} activeMember={activeMember} onBack={goHome} />;
@@ -105,6 +109,8 @@ function Home({ family, onOpenMember, onNav }) {
   const hasParent = members.some(m => PARENT_ROLES.includes(m.role));
   const childrenWithTools = members.filter(m => ["child","sibling"].includes(m.role));
   const msMembers = members.filter(m => m.msFlag);
+  const teachers  = members.filter(m => m.role === "teacher");
+  const nonTeachers = members.filter(m => m.role !== "teacher");
   const appName = family.appName || "Haven";
 
   return (
@@ -136,10 +142,22 @@ function Home({ family, onOpenMember, onNav }) {
           {/* Family members */}
           <SectionTitle>{t("homeTitle")}</SectionTitle>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 14, marginBottom: 28 }}>
-            {members.map((m, i) => (
+            {nonTeachers.map((m, i) => (
               <MemberCard key={m.id} member={m} family={family} onClick={() => onOpenMember(m, "chat")} delay={i * 0.06} />
             ))}
           </div>
+
+          {/* Teacher / School section */}
+          {teachers.length > 0 && (
+            <>
+              <SectionTitle>🏫 {t("teacherHome")}</SectionTitle>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
+                {teachers.map(tc => (
+                  <TeacherCard key={tc.id} teacher={tc} family={family} t={t} onClick={() => onOpenMember(tc)} />
+                ))}
+              </div>
+            </>
+          )}
 
           {/* Toolboxes */}
           {(hasParent || childrenWithTools.length > 0) && (
@@ -165,6 +183,50 @@ function Home({ family, onOpenMember, onNav }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function TeacherCard({ teacher, family, t, onClick }) {
+  const it = (family?.language || "en") === "it";
+  const senCount = (() => {
+    try {
+      const plans = JSON.parse(localStorage.getItem("haven_sen_v1") || "{}");
+      return Object.keys(plans).length;
+    } catch { return 0; }
+  })();
+  return (
+    <button
+      onClick={onClick}
+      className="card"
+      style={{
+        display: "flex", alignItems: "center", gap: 14,
+        padding: "16px 18px", cursor: "pointer", textAlign: "left",
+        borderLeft: "5px solid #1A4A5C",
+        background: "linear-gradient(135deg, #1A4A5C08, transparent)",
+        transition: "all .1s", width: "100%",
+      }}
+      onMouseOver={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-lg)"; }}
+      onMouseOut={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}
+    >
+      <div style={{ width: 44, height: 44, borderRadius: 12, background: "#1A4A5C22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.5rem", flexShrink: 0 }}>
+        {teacher.emoji}
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 700, fontSize: ".95rem" }}>{teacher.name}</div>
+        <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+          <span style={{ background: "#1A4A5C", color: "#fff", fontSize: ".68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>
+            🏫 {t("roles.teacher")}
+          </span>
+          {senCount > 0 && (
+            <span style={{ background: "#1A4A5C22", color: "#1A4A5C", fontSize: ".68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>
+              {senCount} {t("senPlanBadge")}
+            </span>
+          )}
+          <span style={{ fontSize: ".7rem" }}>🔐</span>
+        </div>
+      </div>
+      <span style={{ color: "#1A4A5C", fontSize: "1rem" }}>→</span>
+    </button>
   );
 }
 
