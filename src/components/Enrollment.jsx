@@ -1,9 +1,9 @@
 import React, { useState } from "react";
 import { LANGS, getT } from "../i18n.js";
 
-const ROLES = ["parent","partner","child","sibling","grandparent","caregiver","teacher","other"];
+const ROLES = ["parent","partner","child","sibling","grandparent","caregiver","teacher","sna","other"];
 const MS_ROLES = ["child","sibling"]; // only these can have MS flag
-const PIN_REQUIRED_ROLES = ["teacher"]; // PIN mandatory for these roles
+const PIN_REQUIRED_ROLES = ["teacher","sna"]; // PIN mandatory for these roles
 
 const ROLE_EMOJIS = {
   parent: ["🧑‍👧‍👦","👨","👩","🧑"],
@@ -13,6 +13,7 @@ const ROLE_EMOJIS = {
   grandparent: ["🌻","🌿","☕","📚","🧶"],
   caregiver: ["🤝","💙","🌸","🌿"],
   teacher: ["🏫","📚","✏️","🎓","🌍"],
+  sna: ["🤲","🌟","💛","🤝"],
   other: ["✨","🌙","⭐","🍃"],
 };
 
@@ -24,6 +25,7 @@ const ROLE_COLORS = {
   grandparent: "#C4785A",
   caregiver:   "#6B8E6B",
   teacher:     "#1A4A5C",
+  sna:         "#2C6B4A",
   other:       "#8A8A8A",
 };
 
@@ -249,6 +251,8 @@ export default function Enrollment({ onComplete }) {
 function MemberForm({ member, setField, onSave, onCancel, t }) {
   const emojis = ROLE_EMOJIS[member.role] || ["✨","🌙","⭐"];
   const isTeacher = member.role === "teacher";
+  const isSNA     = member.role === "sna";
+  const isSchoolRole = isTeacher || isSNA;
   const pinRequired = PIN_REQUIRED_ROLES.includes(member.role);
   const canMS = MS_ROLES.includes(member.role);
 
@@ -318,11 +322,15 @@ function MemberForm({ member, setField, onSave, onCancel, t }) {
           </div>
         </div>
 
-        {/* Teacher consent notice */}
-        {isTeacher && (
-          <div style={{ padding: "12px 14px", borderRadius: "var(--radius-sm)", background: "#1A4A5C11", border: "1.5px solid #1A4A5C44", marginBottom: 16 }}>
-            <p style={{ fontSize: ".82rem", color: "#1A4A5C", lineHeight: 1.6 }}>
-              🏫 {t("teacherConsentNote")}
+        {/* School role consent notice */}
+        {isSchoolRole && (
+          <div style={{
+            padding: "12px 14px", borderRadius: "var(--radius-sm)", marginBottom: 16,
+            background: isTeacher ? "#1A4A5C11" : "#2C6B4A11",
+            border: `1.5px solid ${isTeacher ? "#1A4A5C44" : "#2C6B4A44"}`,
+          }}>
+            <p style={{ fontSize: ".82rem", color: isTeacher ? "#1A4A5C" : "#2C6B4A", lineHeight: 1.6 }}>
+              {isTeacher ? "🏫" : "🤲"} {t(isTeacher ? "teacherConsentNote" : "snaConsentNote")}
             </p>
           </div>
         )}
