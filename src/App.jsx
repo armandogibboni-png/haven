@@ -4,10 +4,13 @@ import PinGate from "./components/PinGate.jsx";
 import Chat from "./components/Chat.jsx";
 import FamilyBoard from "./components/FamilyBoard.jsx";
 import FriendsRelatives from "./components/FriendsRelatives.jsx";
+import ConsentScreen from "./components/ConsentScreen.jsx";
+import PrivacyPolicy from "./components/PrivacyPolicy.jsx";
 import Toolbox from "./toolbox/Toolbox.jsx";
 import { getT } from "./i18n.js";
 
-const HAVEN_KEY = "haven_family_v1";
+const HAVEN_KEY    = "haven_family_v1";
+const CONSENT_KEY  = "haven_consent_v1";
 const PARENT_ROLES = ["parent","partner","caregiver"];
 const SPECIAL_SHARED = ["board","friends","together","settings"];
 
@@ -17,11 +20,20 @@ export default function App() {
   const [screen, setScreen] = useState("home");
   const [activeMember, setActiveMember] = useState(null);
   const [pinPending, setPinPending] = useState(null);
+  // GDPR consent — must be given before enrollment and any data collection
+  const [consentGiven, setConsentGiven] = useState(false);
+  const [consentLang, setConsentLang] = useState("en");
 
   useEffect(() => {
     try {
+      const consent = localStorage.getItem(CONSENT_KEY);
+      if (consent) setConsentGiven(true);
       const saved = localStorage.getItem(HAVEN_KEY);
-      if (saved) setFamily(JSON.parse(saved));
+      if (saved) {
+        const f = JSON.parse(saved);
+        setFamily(f);
+        setConsentLang(f.language || "en");
+      }
     } catch {}
     setLoading(false);
   }, []);
@@ -43,6 +55,24 @@ export default function App() {
   const goHome = () => { setScreen("home"); setActiveMember(null); };
 
   if (loading) return null;
+
+  // GDPR: show consent before anything else
+  if (!consentGiven) {
+    return (
+      <ConsentScreen
+        lang={consentLang}
+        onAccept={() => {
+          localStorage.setItem(CONSENT_KEY, JSON.stringify({ given: true, date: new Date().toISOString() }));
+          setConsentGiven(true);
+        }}
+        onDecline={() => {
+          // User declined — show a neutral screen, nothing stored
+          document.body.innerHTML = `<div style="font-family:sans-serif;padding:40px;text-align:center;color:#666"><p>You have declined. No data has been collected.</p><p style="margin-top:16px">Close this tab to exit.</p></div>`;
+        }}
+      />
+    );
+  }
+
   if (!family) return <Enrollment onComplete={saveFamily} />;
 
   if (pinPending) return (
@@ -62,7 +92,8 @@ export default function App() {
   if (screen === "toolbox") return <Toolbox member={activeMember} family={family} onBack={goHome} />;
   if (screen === "board")   return <FamilyBoard family={family} activeMember={activeMember} onBack={goHome} />;
   if (screen === "friends") return <FriendsRelatives family={family} onBack={goHome} />;
-  if (screen === "settings") return <Settings family={family} onSave={saveFamily} onBack={goHome} />;
+  if (screen === "privacy") return <PrivacyPolicy lang={family?.language || "en"} onBack={goHome} />;
+  if (screen === "settings") return <Settings family={family} onSave={saveFamily} onBack={goHome} onPrivacy={() => setScreen("privacy")} onWithdrawConsent={() => { localStorage.removeItem(CONSENT_KEY); setConsentGiven(false); }} />;
 
   return <Home family={family} onOpenMember={openMember} onNav={setScreen} />;
 }
@@ -246,17 +277,26 @@ function SpaceCard({ emoji, label, color, onClick, badge }) {
 }
 
 /* ── Settings Screen ──────────────────────────────────── */
-function Settings({ family, onSave, onBack }) {
+function Settings({ family, onSave, onBack, onPrivacy, onWithdrawConsent }) {
   const [appName, setAppName] = useState(family.appName || "Haven");
   const [lang, setLang] = useState(family.language || "en");
   const t = getT(lang);
+  const it = lang === "it";
 
   const save = () => onSave({ ...family, appName: appName.trim() || "Haven", language: lang });
 
   const resetAll = () => {
-    if (window.confirm("Reset all data? This cannot be undone.")) {
+    if (window.confirm(it ? "Cancellare tutti i dati? Questa azione è irreversibile." : "Reset all data? This cannot be undone.")) {
       localStorage.clear();
       window.location.reload();
+    }
+  };
+
+  const withdrawConsent = () => {
+    if (window.confirm(it
+      ? "Revocare il consenso disabiliterà la chat AI e richiederà di accettare di nuovo al prossimo avvio. Continuare?"
+      : "Withdrawing consent will disable AI chat and require re-consent at next launch. Continue?")) {
+      onWithdrawConsent();
     }
   };
 
@@ -286,15 +326,37 @@ function Settings({ family, onSave, onBack }) {
             ))}
           </div>
         </div>
-        <div className="card" style={{ borderColor: "var(--accent)" }}>
+
+        <button className="btn btn-primary" onClick={save}>{t("save")} ✓</button>
+
+        {/* GDPR section */}
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+          <p style={{ fontSize: ".75rem", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 14 }}>
+            🔐 {it ? "Privacy e GDPR" : "Privacy & GDPR"}
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <button className="btn btn-ghost" style={{ justifyContent: "flex-start", gap: 10 }} onClick={onPrivacy}>
+              📄 {it ? "Leggi l'Informativa sulla Privacy" : "Read Privacy Policy"}
+            </button>
+            <button
+              className="btn btn-ghost"
+              style={{ justifyContent: "flex-start", gap: 10, color: "var(--accent)", borderColor: "#E8C8B0" }}
+              onClick={withdrawConsent}
+            >
+              🔄 {it ? "Revoca il consenso" : "Withdraw consent"}
+            </button>
+          </div>
+        </div>
+
+        {/* Danger zone */}
+        <div className="card" style={{ borderColor: "#FECACA" }}>
           <p style={{ fontSize: ".85rem", color: "var(--muted)", marginBottom: 10 }}>
-            To add or edit family members, reset and re-run the setup.
+            {it ? "Reimposta l'app e cancella tutti i dati locali (GDPR Art. 17 — diritto alla cancellazione)." : "Reset the app and delete all local data (GDPR Art. 17 — right to erasure)."}
           </p>
           <button className="btn" style={{ background: "#FEE2E2", color: "#B91C1C", border: "1px solid #FECACA", width: "100%" }} onClick={resetAll}>
-            🗑 Reset all data
+            🗑 {it ? "Cancella tutti i dati" : "Reset all data"}
           </button>
         </div>
-        <button className="btn btn-primary" onClick={save}>{t("save")} ✓</button>
       </div>
     </div>
   );
