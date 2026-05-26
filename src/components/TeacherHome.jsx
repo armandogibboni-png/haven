@@ -4,17 +4,19 @@ import SENPlan from "./SENPlan.jsx";
 import Chat from "./Chat.jsx";
 import FamilyBoard from "./FamilyBoard.jsx";
 
-// Teacher sees ONLY: SEN Plans (primary), Student card, Message parent, Family Board
-// Teacher CANNOT access: child chat, child diary, emotion check-ins, any child-generated data
+// Teacher sees: SEN Plans, Student card, Message parent, Family Board, AI chat (strategies only)
+// SNA (readOnly=true) sees: SEN Plan (read-only), Family Board (post allowed), NO AI chat, NO parent contact
+// Neither can access: child chat, child diary, emotion check-ins, child-generated data
 
 const PARENT_ROLES = ["parent","partner","caregiver"];
 
-export default function TeacherHome({ teacher, family, onBack }) {
+export default function TeacherHome({ teacher, family, onBack, readOnly = false }) {
   const t   = getT(family?.language || "en");
   const it  = (family?.language || "en") === "it";
   const [screen, setScreen] = useState("home");
   const [activeChild, setActiveChild] = useState(null);
   const [activeParent, setActiveParent] = useState(null);
+  const isSNA = teacher.role === "sna" || readOnly;
 
   // SEN-eligible: children with msFlag or senFlag
   const senStudents = family.members.filter(m =>
@@ -23,25 +25,35 @@ export default function TeacherHome({ teacher, family, onBack }) {
   const parents = family.members.filter(m => PARENT_ROLES.includes(m.role));
 
   if (screen === "senPlan" && activeChild) {
-    return <SENPlan child={activeChild} viewer={teacher} family={family} onBack={() => { setScreen("home"); setActiveChild(null); }} />;
+    return <SENPlan child={activeChild} viewer={teacher} family={family} onBack={() => { setScreen("home"); setActiveChild(null); }} readOnly={isSNA} />;
   }
-  if (screen === "chatParent" && activeParent) {
+  if (screen === "chatParent" && activeParent && !isSNA) {
     return <Chat member={activeParent} family={family} onBack={() => { setScreen("home"); setActiveParent(null); }} teacherMode={{ teacher, restriction: it ? "Sei l'insegnante. Puoi contattare solo i genitori. Non puoi accedere ai dati del bambino." : "You are the teacher. You may contact parents only. You cannot access child data." }} />;
   }
   if (screen === "board") {
     return <FamilyBoard family={family} activeMember={teacher} onBack={() => setScreen("home")} />;
   }
 
+  const roleLabel = isSNA
+    ? (it ? "SNA" : "SNA")
+    : (it ? "INSEGNANTE" : "TEACHER");
+  const headerColor = isSNA ? "#2C6B4A" : "#1A4A5C";
+
   return (
     <div className="screen">
-      {/* Teacher header — distinct dark teal palette */}
-      <div style={{ background: "linear-gradient(135deg, #1A4A5C 0%, #2C3E50 100%)", padding: "20px 20px 16px" }}>
+      {/* Header */}
+      <div style={{ background: `linear-gradient(135deg, ${headerColor} 0%, #2C3E50 100%)`, padding: "20px 20px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
               <span style={{ background: "rgba(255,255,255,.2)", color: "#fff", fontSize: ".7rem", fontWeight: 700, padding: "2px 10px", borderRadius: 20, letterSpacing: ".06em" }}>
-                🏫 {t("teacherHome").toUpperCase()}
+                {isSNA ? "🤲" : "🏫"} {roleLabel}
               </span>
+              {isSNA && (
+                <span style={{ background: "rgba(255,255,255,.15)", color: "#fff", fontSize: ".65rem", fontWeight: 600, padding: "2px 8px", borderRadius: 20 }}>
+                  {t("snaReadOnly")}
+                </span>
+              )}
             </div>
             <h1 style={{ fontFamily: "var(--font-display)", color: "#fff", fontSize: "1.5rem", fontWeight: 400 }}>
               {it ? "Benvenuto" : "Welcome"}, {teacher.name}
@@ -58,8 +70,12 @@ export default function TeacherHome({ teacher, family, onBack }) {
       <div style={{ background: "#1A4A5C11", borderBottom: "1px solid #1A4A5C22", padding: "8px 20px" }}>
         <p style={{ fontSize: ".75rem", color: "#1A4A5C", lineHeight: 1.5 }}>
           🔐 {it
-            ? "Accesso limitato: puoi consultare i PEI/PDP e contattare i genitori. Chat, diari e check-in emotivi degli studenti non sono accessibili."
-            : "Limited access: you can view SEN Plans and contact parents. Student chats, diaries and emotion check-ins are not accessible."}
+            ? (isSNA
+                ? "Accesso SNA: puoi vedere i PEI/PDP (sola lettura) e la bacheca famiglia. Chat, diari e check-in emotivi non sono accessibili."
+                : "Accesso limitato: puoi consultare i PEI/PDP e contattare i genitori. Chat, diari e check-in emotivi degli studenti non sono accessibili.")
+            : (isSNA
+                ? "SNA access: you can view SEN Plans (read-only) and the Family Board. Student chats, diaries and emotion check-ins are not accessible."
+                : "Limited access: you can view SEN Plans and contact parents. Student chats, diaries and emotion check-ins are not accessible.")}
         </p>
       </div>
 
@@ -67,11 +83,13 @@ export default function TeacherHome({ teacher, family, onBack }) {
 
         {/* ── SEN Plans — PRIMARY ELEMENT ── */}
         <div style={{ marginBottom: 28 }}>
-          <SectionLabel color="#1A4A5C">
+          <SectionLabel color={isSNA ? "#2C6B4A" : "#1A4A5C"}>
             📋 {t("senPlanFull")}
           </SectionLabel>
           <p style={{ fontSize: ".82rem", color: "var(--muted)", marginBottom: 14, lineHeight: 1.5 }}>
-            {t("senPlanSub")}
+            {isSNA
+              ? (it ? "Visualizza gli obiettivi e le osservazioni del piano (sola lettura)." : "View plan goals and observations (read-only).")
+              : t("senPlanSub")}
           </p>
 
           {senStudents.length === 0
@@ -96,8 +114,8 @@ export default function TeacherHome({ teacher, family, onBack }) {
           }
         </div>
 
-        {/* ── Contact parents ── */}
-        {parents.length > 0 && (
+        {/* ── Contact parents — teacher only, not SNA ── */}
+        {!isSNA && parents.length > 0 && (
           <div style={{ marginBottom: 28 }}>
             <SectionLabel color="#3D6B7D">
               💬 {it ? "Contatta i genitori" : "Contact parents"}
@@ -125,7 +143,6 @@ export default function TeacherHome({ teacher, family, onBack }) {
             </div>
           </div>
         )}
-
         {/* ── Family Board ── */}
         <div style={{ marginBottom: 28 }}>
           <SectionLabel color="#3D6B7D">
@@ -152,17 +169,26 @@ export default function TeacherHome({ teacher, family, onBack }) {
         {/* Access restriction reminder */}
         <div className="card" style={{ background: "#1A4A5C08", borderColor: "#1A4A5C33", padding: "14px 16px", marginBottom: 24 }}>
           <p style={{ fontSize: ".78rem", color: "#1A4A5C", fontWeight: 600, marginBottom: 6 }}>
-            🔐 {it ? "Accesso insegnante — riepilogo" : "Teacher access — summary"}
+            🔐 {isSNA
+              ? (it ? "Accesso SNA — riepilogo" : "SNA access — summary")
+              : (it ? "Accesso insegnante — riepilogo" : "Teacher access — summary")}
           </p>
           <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: 4 }}>
-            {[
+            {(isSNA ? [
+              [it ? "PEI/PDP degli studenti (sola lettura)" : "Student SEN Plans (read-only)", true],
+              [it ? "Bacheca famiglia" : "Family Board", true],
+              [it ? "Contatto genitori" : "Parent contact", false],
+              [it ? "Chat del bambino" : "Child chat", false],
+              [it ? "Diario delle vittorie" : "Victories diary", false],
+              [it ? "Check-in emotivi" : "Emotion check-ins", false],
+            ] : [
               [it ? "PEI/PDP degli studenti" : "Student SEN Plans", true],
               [it ? "Contatto genitori" : "Parent contact", true],
               [it ? "Bacheca famiglia" : "Family Board", true],
               [it ? "Chat del bambino" : "Child chat", false],
               [it ? "Diario delle vittorie" : "Victories diary", false],
               [it ? "Check-in emotivi" : "Emotion check-ins", false],
-            ].map(([label, allowed]) => (
+            ]).map(([label, allowed]) => (
               <li key={label} style={{ fontSize: ".78rem", color: allowed ? "#065F46" : "#B91C1C", display: "flex", gap: 6 }}>
                 <span>{allowed ? "✓" : "✗"}</span> {label}
               </li>
