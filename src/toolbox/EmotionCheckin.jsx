@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { getT } from "../i18n.js";
+import { trackEmotionCheckin, touchLastActivity } from "../metrics.js";
 
 const EMOTIONS = [
   { id: "happy",   emoji: "😊", en: "Happy",     it: "Felice" },
@@ -48,6 +49,8 @@ export default function EmotionCheckin({ member, family, onBack }) {
       const existing = JSON.parse(localStorage.getItem(CHECKIN_KEY) || "[]");
       localStorage.setItem(CHECKIN_KEY, JSON.stringify([entry, ...existing].slice(0, 200)));
     } catch {}
+    trackEmotionCheckin();
+    touchLastActivity(member.role);
     setSaved(true);
   };
 
