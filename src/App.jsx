@@ -7,6 +7,7 @@ import FriendsRelatives from "./components/FriendsRelatives.jsx";
 import ConsentScreen from "./components/ConsentScreen.jsx";
 import PrivacyPolicy from "./components/PrivacyPolicy.jsx";
 import TeacherHome from "./components/TeacherHome.jsx";
+import REAIMReadiness from "./components/REAIMReadiness.jsx";
 import Toolbox from "./toolbox/Toolbox.jsx";
 import { getT } from "./i18n.js";
 
@@ -14,6 +15,8 @@ const HAVEN_KEY    = "haven_family_v1";
 const CONSENT_KEY  = "haven_consent_v1";
 const PARENT_ROLES = ["parent","partner","caregiver"];
 const TEACHER_ROLE = "teacher";
+const SNA_ROLE     = "sna";
+const SCHOOL_ROLES = ["teacher","sna"]; // both route to TeacherHome
 
 export default function App() {
   const [family, setFamily] = useState(null);
@@ -45,8 +48,8 @@ export default function App() {
   };
 
   const openMember = (member, target = "chat") => {
-    // Teacher role always goes to TeacherHome
-    if (member.role === TEACHER_ROLE) {
+    // School roles (teacher/SNA) always go to TeacherHome
+    if (SCHOOL_ROLES.includes(member.role)) {
       if (member.pin) { setPinPending({ member, target: "teacher" }); }
       else { setActiveMember(member); setScreen("teacher"); }
       return;
@@ -91,13 +94,14 @@ export default function App() {
     />
   );
 
-  if (screen === "teacher")  return <TeacherHome teacher={activeMember} family={family} onBack={goHome} />;
+  if (screen === "teacher")  return <TeacherHome teacher={activeMember} family={family} onBack={goHome} readOnly={activeMember?.role === SNA_ROLE} />;
   if (screen === "chat")    return <Chat member={activeMember} family={family} onBack={goHome} />;
   if (screen === "toolbox") return <Toolbox member={activeMember} family={family} onBack={goHome} />;
   if (screen === "board")   return <FamilyBoard family={family} activeMember={activeMember} onBack={goHome} />;
   if (screen === "friends") return <FriendsRelatives family={family} onBack={goHome} />;
   if (screen === "privacy") return <PrivacyPolicy lang={family?.language || "en"} onBack={goHome} />;
-  if (screen === "settings") return <Settings family={family} onSave={saveFamily} onBack={goHome} onPrivacy={() => setScreen("privacy")} onWithdrawConsent={() => { localStorage.removeItem(CONSENT_KEY); setConsentGiven(false); }} />;
+  if (screen === "reaim")   return <REAIMReadiness lang={family?.language || "en"} onBack={goHome} />;
+  if (screen === "settings") return <Settings family={family} onSave={saveFamily} onBack={goHome} onPrivacy={() => setScreen("privacy")} onREAIM={() => setScreen("reaim")} onWithdrawConsent={() => { localStorage.removeItem(CONSENT_KEY); setConsentGiven(false); }} />;
 
   return <Home family={family} onOpenMember={openMember} onNav={setScreen} />;
 }
@@ -109,8 +113,8 @@ function Home({ family, onOpenMember, onNav }) {
   const hasParent = members.some(m => PARENT_ROLES.includes(m.role));
   const childrenWithTools = members.filter(m => ["child","sibling"].includes(m.role));
   const msMembers = members.filter(m => m.msFlag);
-  const teachers  = members.filter(m => m.role === "teacher");
-  const nonTeachers = members.filter(m => m.role !== "teacher");
+  const teachers  = members.filter(m => SCHOOL_ROLES.includes(m.role));
+  const nonTeachers = members.filter(m => !SCHOOL_ROLES.includes(m.role));
   const appName = family.appName || "Haven";
 
   return (
@@ -150,7 +154,7 @@ function Home({ family, onOpenMember, onNav }) {
           {/* Teacher / School section */}
           {teachers.length > 0 && (
             <>
-              <SectionTitle>🏫 {t("teacherHome")}</SectionTitle>
+              <SectionTitle>🏫 {it ? "Scuola" : "School"}</SectionTitle>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
                 {teachers.map(tc => (
                   <TeacherCard key={tc.id} teacher={tc} family={family} t={t} onClick={() => onOpenMember(tc)} />
@@ -188,6 +192,8 @@ function Home({ family, onOpenMember, onNav }) {
 
 function TeacherCard({ teacher, family, t, onClick }) {
   const it = (family?.language || "en") === "it";
+  const isSNA = teacher.role === "sna";
+  const color = isSNA ? "#2C6B4A" : "#1A4A5C";
   const senCount = (() => {
     try {
       const plans = JSON.parse(localStorage.getItem("haven_sen_v1") || "{}");
@@ -201,31 +207,32 @@ function TeacherCard({ teacher, family, t, onClick }) {
       style={{
         display: "flex", alignItems: "center", gap: 14,
         padding: "16px 18px", cursor: "pointer", textAlign: "left",
-        borderLeft: "5px solid #1A4A5C",
-        background: "linear-gradient(135deg, #1A4A5C08, transparent)",
+        borderLeft: `5px solid ${color}`,
+        background: `linear-gradient(135deg, ${color}08, transparent)`,
         transition: "all .1s", width: "100%",
       }}
       onMouseOver={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-lg)"; }}
       onMouseOut={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}
     >
-      <div style={{ width: 44, height: 44, borderRadius: 12, background: "#1A4A5C22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.5rem", flexShrink: 0 }}>
+      <div style={{ width: 44, height: 44, borderRadius: 12, background: color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.5rem", flexShrink: 0 }}>
         {teacher.emoji}
       </div>
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 700, fontSize: ".95rem" }}>{teacher.name}</div>
         <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
-          <span style={{ background: "#1A4A5C", color: "#fff", fontSize: ".68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>
-            🏫 {t("roles.teacher")}
+          <span style={{ background: color, color: "#fff", fontSize: ".68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>
+            {isSNA ? "🤲" : "🏫"} {t(`roles.${teacher.role}`)}
           </span>
-          {senCount > 0 && (
-            <span style={{ background: "#1A4A5C22", color: "#1A4A5C", fontSize: ".68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>
+          {!isSNA && senCount > 0 && (
+            <span style={{ background: color + "22", color, fontSize: ".68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>
               {senCount} {t("senPlanBadge")}
             </span>
           )}
+          {isSNA && <span style={{ background: "#2C6B4A22", color: "#2C6B4A", fontSize: ".68rem", fontWeight: 600, padding: "2px 8px", borderRadius: 20 }}>{t("snaReadOnly")}</span>}
           <span style={{ fontSize: ".7rem" }}>🔐</span>
         </div>
       </div>
-      <span style={{ color: "#1A4A5C", fontSize: "1rem" }}>→</span>
+      <span style={{ color, fontSize: "1rem" }}>→</span>
     </button>
   );
 }
@@ -339,7 +346,7 @@ function SpaceCard({ emoji, label, color, onClick, badge }) {
 }
 
 /* ── Settings Screen ──────────────────────────────────── */
-function Settings({ family, onSave, onBack, onPrivacy, onWithdrawConsent }) {
+function Settings({ family, onSave, onBack, onPrivacy, onREAIM, onWithdrawConsent }) {
   const [appName, setAppName] = useState(family.appName || "Haven");
   const [lang, setLang] = useState(family.language || "en");
   const t = getT(lang);
@@ -400,6 +407,11 @@ function Settings({ family, onSave, onBack, onPrivacy, onWithdrawConsent }) {
             <button className="btn btn-ghost" style={{ justifyContent: "flex-start", gap: 10 }} onClick={onPrivacy}>
               📄 {it ? "Leggi l'Informativa sulla Privacy" : "Read Privacy Policy"}
             </button>
+            {onREAIM && (
+              <button className="btn btn-ghost" style={{ justifyContent: "flex-start", gap: 10 }} onClick={onREAIM}>
+                📊 {it ? "RE-AIM Readiness" : "RE-AIM Readiness"}
+              </button>
+            )}
             <button
               className="btn btn-ghost"
               style={{ justifyContent: "flex-start", gap: 10, color: "var(--accent)", borderColor: "#E8C8B0" }}
