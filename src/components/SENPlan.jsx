@@ -1,8 +1,34 @@
 import React, { useState, useEffect } from "react";
 import { getT } from "../i18n.js";
+import SMQWidget from "./SMQWidget.jsx";
+import InactivityPrompt from "./InactivityPrompt.jsx";
+import FidelityBadge from "./FidelityBadge.jsx";
+import FollowUpCheckin, { initFollowUp } from "./FollowUpCheckin.jsx";
+import { ArchiveBrowser, archivePlan } from "./SENArchive.jsx";
+import { trackFeedbackEntry, trackGoalCreated, trackGoalStatusChange, trackRevision, trackSMQ, touchLastActivity } from "../metrics.js";
 
 const SEN_KEY = "haven_sen_v1";
 const MODEL   = "claude-sonnet-4-20250514";
+
+// Crisis escalation contacts — educational, not clinical
+// These are referral signposting only. Haven does not provide clinical crisis support.
+const CRISIS_CONTACTS = {
+  en: [
+    { label: "NCSE SENO (Ireland — SEN coordinator)",  url: "https://ncse.ie/seno-information" },
+    { label: "HSE CAMHS referral (Ireland)",           url: "https://www.hse.ie/eng/services/list/4/mental-health-services/child-and-adolescent/" },
+    { label: "NEPS (National Ed. Psychological Service)", url: "https://www.gov.ie/en/service/9a7d7f-national-educational-psychological-service-neps/" },
+    { label: "Tusla Child and Family Agency (Ireland)", url: "https://www.tusla.ie/children-first/" },
+    { label: "SMIRA (Selective Mutism — UK support)",  url: "https://www.selectivemutism.org.uk" },
+    { label: "AIMSI (Selective Mutism — Ireland)",     url: "https://www.aimsi.ie" },
+  ],
+  it: [
+    { label: "NCSE SENO (Irlanda — coordinatore SEN)", url: "https://ncse.ie/seno-information" },
+    { label: "HSE CAMHS (Irlanda — salute mentale)",   url: "https://www.hse.ie/eng/services/list/4/mental-health-services/child-and-adolescent/" },
+    { label: "NEPS (Servizio Psicologico Scolastico)", url: "https://www.gov.ie/en/service/9a7d7f-national-educational-psychological-service-neps/" },
+    { label: "Tusla Agenzia Famiglia e Infanzia",      url: "https://www.tusla.ie/children-first/" },
+    { label: "AIMSI (Mutismo Selettivo — Irlanda)",    url: "https://www.aimsi.ie" },
+  ],
+};
 
 const AREAS_EN = ["communication","social","learning","behaviour","custom"];
 const STATUS_COLORS = {
@@ -10,6 +36,22 @@ const STATUS_COLORS = {
   achieved: "#6A9E7B",
   review:   "#E8A838",
 };
+
+// GAS (Goal Attainment Scaling) level templates
+const GAS_TEMPLATES_EN = [
+  { level: -2, label: "Much less than expected", desc: "Significant regression or no progress" },
+  { level: -1, label: "Somewhat less than expected", desc: "Minimal progress" },
+  { level:  0, label: "Expected level achieved", desc: "Goal met as planned" },
+  { level: +1, label: "Somewhat better than expected", desc: "Exceeds target in some areas" },
+  { level: +2, label: "Much better than expected", desc: "Significantly exceeds all targets" },
+];
+const GAS_TEMPLATES_IT = [
+  { level: -2, label: "Molto meno del previsto", desc: "Regressione significativa o nessun progresso" },
+  { level: -1, label: "Un po' meno del previsto", desc: "Progressi minimi" },
+  { level:  0, label: "Livello atteso raggiunto", desc: "Obiettivo raggiunto come pianificato" },
+  { level: +1, label: "Un po' meglio del previsto", desc: "Supera il target in alcune aree" },
+  { level: +2, label: "Molto meglio del previsto", desc: "Supera significativamente tutti i target" },
+];
 
 function loadPlans() {
   try { return JSON.parse(localStorage.getItem(SEN_KEY) || "{}"); } catch { return {}; }
@@ -28,9 +70,10 @@ function setPlan(childId, plan) {
 }
 
 // ── Main SENPlan component ────────────────────────────────
-export default function SENPlan({ child, viewer, family, onBack }) {
+export default function SENPlan({ child, viewer, family, onBack, readOnly = false }) {
   const t   = getT(family?.language || "en");
   const it  = (family?.language || "en") === "it";
+  const lang = family?.language || "en";
   const [plan, setPlanState]    = useState(() => getPlan(child.id));
   const [activeTab, setTab]     = useState("goals");
   const [showGoalForm, setGoalForm] = useState(false);
@@ -38,9 +81,13 @@ export default function SENPlan({ child, viewer, family, onBack }) {
   const [showRevision, setRevisionForm] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError]    = useState(null);
+  const [showSMQ, setShowSMQ]   = useState(false);
+  const [showCrisis, setShowCrisis] = useState(false);
 
   const isTeacher = viewer.role === "teacher";
+  const isSNA     = viewer.role === "sna";
   const isParent  = ["parent","partner","caregiver"].includes(viewer.role);
+  const canEdit   = !readOnly && (isTeacher || isParent);
 
   const update = (newPlan) => {
     setPlanState(newPlan);
@@ -50,11 +97,16 @@ export default function SENPlan({ child, viewer, family, onBack }) {
   // ── Goals ────────────────────────────────────────────
   const addGoal = (goal) => {
     update({ ...plan, goals: [...plan.goals, { ...goal, id: Date.now().toString(), createdAt: new Date().toISOString(), createdBy: viewer.name }] });
+    trackGoalCreated(goal.area);
+    touchLastActivity(viewer.role);
     setGoalForm(false);
   };
   const toggleGoalStatus = (id) => {
     const statuses = ["active","review","achieved"];
-    update({ ...plan, goals: plan.goals.map(g => g.id === id ? { ...g, status: statuses[(statuses.indexOf(g.status)+1) % statuses.length] } : g) });
+    const goal = plan.goals.find(g => g.id === id);
+    const nextStatus = statuses[(statuses.indexOf(goal?.status || "active")+1) % statuses.length];
+    update({ ...plan, goals: plan.goals.map(g => g.id === id ? { ...g, status: nextStatus } : g) });
+    trackGoalStatusChange(nextStatus);
   };
   const deleteGoal = (id) => update({ ...plan, goals: plan.goals.filter(g => g.id !== id) });
 
@@ -62,6 +114,8 @@ export default function SENPlan({ child, viewer, family, onBack }) {
   const addFeedback = (text, context) => {
     const entry = { id: Date.now().toString(), text, context, author: viewer.name, role: viewer.role, timestamp: new Date().toISOString() };
     update({ ...plan, feedback: [entry, ...plan.feedback] });
+    trackFeedbackEntry(viewer.role, 0);
+    touchLastActivity(viewer.role);
     setFeedbackForm(false);
   };
 
@@ -95,10 +149,13 @@ export default function SENPlan({ child, viewer, family, onBack }) {
   const proposeRevision = (text) => {
     const rev = { id: Date.now().toString(), text, proposedBy: viewer.name, proposedByRole: viewer.role, proposedAt: new Date().toISOString(), status: "pending" };
     update({ ...plan, revisions: [rev, ...plan.revisions] });
+    trackRevision("proposed");
+    touchLastActivity(viewer.role);
     setRevisionForm(false);
   };
   const respondRevision = (id, approved) => {
     update({ ...plan, revisions: plan.revisions.map(r => r.id === id ? { ...r, status: approved ? "approved" : "rejected", respondedBy: viewer.name, respondedAt: new Date().toISOString() } : r) });
+    trackRevision(approved ? "approved" : "rejected");
   };
 
   const pendingRevisions = plan.revisions.filter(r => r.status === "pending");
@@ -127,8 +184,42 @@ export default function SENPlan({ child, viewer, family, onBack }) {
     URL.revokeObjectURL(url);
   };
 
+  // ── SMQ ──────────────────────────────────────────────
+  if (showSMQ) return <SMQWidget child={child} lang={lang} onBack={() => setShowSMQ(false)} />;
+
   return (
     <div className="screen">
+      {/* Crisis modal overlay */}
+      {showCrisis && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div className="card" style={{ width: "100%", maxWidth: 520, borderRadius: "20px 20px 0 0", padding: "24px 20px", animation: "fadeUp .2s ease" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ fontFamily: "var(--font-display)", color: "#B91C1C", fontSize: "1.1rem" }}>
+                🆘 {it ? "Escalation — Contatti di supporto" : "Escalation — Support contacts"}
+              </h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCrisis(false)}>✕</button>
+            </div>
+            <p style={{ fontSize: ".82rem", color: "var(--muted)", lineHeight: 1.6, marginBottom: 16 }}>
+              {it
+                ? "Haven è uno strumento educativo e non può fornire supporto clinico diretto. Se sei preoccupato per il benessere di uno studente, contatta uno dei seguenti servizi."
+                : "Haven is an educational tool and cannot provide direct clinical support. If you are concerned about a student's wellbeing, contact one of the following services."}
+            </p>
+            {(CRISIS_CONTACTS[it ? "it" : "en"]).map((c, i) => (
+              <a key={i} href={c.url} target="_blank" rel="noopener noreferrer"
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: "var(--radius-sm)", background: "var(--surface2)", border: "1px solid var(--border)", marginBottom: 8, textDecoration: "none", color: "var(--text)", fontSize: ".88rem", fontWeight: 500 }}
+              >
+                {c.label} <span style={{ color: "var(--primary)" }}>→</span>
+              </a>
+            ))}
+            <p style={{ fontSize: ".72rem", color: "var(--muted)", marginTop: 12, lineHeight: 1.5 }}>
+              {it
+                ? "Questi link portano a servizi esterni. Haven non è affiliata con nessuno di questi enti."
+                : "These links lead to external services. Haven is not affiliated with any of these organisations."}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header — prominent SEN Plan identity */}
       <div style={{ background: "linear-gradient(135deg, #1A4A5C 0%, #2C6B4A 100%)", padding: "16px 20px 0" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
@@ -139,16 +230,31 @@ export default function SENPlan({ child, viewer, family, onBack }) {
                 {t("senPlanBadge")}
               </span>
               {child.msFlag && <span className="ms-badge" style={{ fontSize: ".68rem" }}>🔷 SM</span>}
+              {readOnly && <span style={{ background: "rgba(255,255,255,.15)", color: "#fff", fontSize: ".65rem", fontWeight: 600, padding: "2px 8px", borderRadius: 20 }}>READ-ONLY</span>}
             </div>
             <h2 style={{ fontFamily: "var(--font-display)", color: "#fff", fontSize: "1.2rem", fontWeight: 500, marginTop: 4 }}>{child.name}</h2>
           </div>
-          <button onClick={exportPlan} style={{ background: "rgba(255,255,255,.15)", border: "none", borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: "#fff", fontSize: ".82rem", fontWeight: 600 }}>
-            ↓ {t("senExport")}
-          </button>
+          <div style={{ display: "flex", gap: 6 }}>
+            {/* SMQ button — parent and teacher only */}
+            {!isSNA && (
+              <button onClick={() => setShowSMQ(true)} style={{ background: "rgba(255,255,255,.15)", border: "none", borderRadius: 8, padding: "7px 10px", cursor: "pointer", color: "#fff", fontSize: ".78rem", fontWeight: 600 }}>
+                📊 SMQ
+              </button>
+            )}
+            {/* Crisis button — teacher only, always visible */}
+            {(isTeacher || isSNA) && (
+              <button onClick={() => setShowCrisis(true)} style={{ background: "rgba(220,38,38,.8)", border: "none", borderRadius: 8, padding: "7px 10px", cursor: "pointer", color: "#fff", fontSize: ".78rem", fontWeight: 700 }}>
+                🆘
+              </button>
+            )}
+            <button onClick={exportPlan} style={{ background: "rgba(255,255,255,.15)", border: "none", borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: "#fff", fontSize: ".82rem", fontWeight: 600 }}>
+              ↓ {t("senExport")}
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", gap: 2 }}>
+        <div style={{ display: "flex", gap: 2, overflowX: "auto" }}>
           {["goals","feedback","revisions","summary"].map(tab => (
             <button key={tab} onClick={() => setTab(tab)} style={{
               padding: "8px 14px", border: "none", cursor: "pointer",
@@ -156,7 +262,7 @@ export default function SENPlan({ child, viewer, family, onBack }) {
               color: activeTab === tab ? "#fff" : "rgba(255,255,255,.6)",
               fontWeight: activeTab === tab ? 700 : 400,
               fontFamily: "var(--font-body)", fontSize: ".82rem",
-              borderRadius: "8px 8px 0 0",
+              borderRadius: "8px 8px 0 0", flexShrink: 0,
               borderBottom: activeTab === tab ? "2px solid #fff" : "2px solid transparent",
             }}>
               {tab === "goals"     && `🎯 ${t("senGoals")}`}
@@ -173,14 +279,24 @@ export default function SENPlan({ child, viewer, family, onBack }) {
         {/* ── GOALS TAB ── */}
         {activeTab === "goals" && (
           <div>
-            {showGoalForm
-              ? <GoalForm areas={areas} t={t} it={it} onSave={addGoal} onCancel={() => setGoalForm(false)} />
-              : <button className="btn btn-primary" style={{ width: "100%", marginBottom: 16 }} onClick={() => setGoalForm(true)}>+ {t("senAddGoal")}</button>
-            }
+            {canEdit && (
+              showGoalForm
+                ? <GoalForm areas={areas} t={t} it={it} lang={lang} onSave={addGoal} onCancel={() => setGoalForm(false)} />
+                : <button className="btn btn-primary" style={{ width: "100%", marginBottom: 16 }} onClick={() => setGoalForm(true)}>+ {t("senAddGoal")}</button>
+            )}
+            {readOnly && (
+              <div style={{ background: "var(--surface2)", padding: "10px 14px", borderRadius: "var(--radius-sm)", marginBottom: 16, fontSize: ".8rem", color: "var(--muted)" }}>
+                {it ? "🔒 Accesso in sola lettura — non puoi modificare gli obiettivi." : "🔒 Read-only access — you cannot edit goals."}
+              </div>
+            )}
             {plan.goals.length === 0
               ? <EmptyState emoji="🎯" text={t("senNoGoals")} />
               : plan.goals.map(g => (
-                <GoalCard key={g.id} goal={g} t={t} it={it} onToggle={() => toggleGoalStatus(g.id)} onDelete={() => deleteGoal(g.id)} />
+                <GoalCard key={g.id} goal={g} t={t} it={it}
+                  onToggle={canEdit ? () => toggleGoalStatus(g.id) : null}
+                  onDelete={canEdit ? () => deleteGoal(g.id) : null}
+                  readOnly={readOnly}
+                />
               ))
             }
           </div>
@@ -189,10 +305,18 @@ export default function SENPlan({ child, viewer, family, onBack }) {
         {/* ── FEEDBACK TAB ── */}
         {activeTab === "feedback" && (
           <div>
-            {showFeedback
-              ? <FeedbackForm t={t} it={it} viewer={viewer} onSave={addFeedback} onCancel={() => setFeedbackForm(false)} />
-              : <button className="btn btn-primary" style={{ width: "100%", marginBottom: 16 }} onClick={() => setFeedbackForm(true)}>+ {t("senAddFeedback")}</button>
-            }
+            <FidelityBadge lang={lang} />
+            <InactivityPrompt role={viewer.role} lang={lang} />
+            {canEdit && (
+              showFeedback
+                ? <FeedbackForm t={t} it={it} viewer={viewer} onSave={addFeedback} onCancel={() => setFeedbackForm(false)} />
+                : <button className="btn btn-primary" style={{ width: "100%", marginBottom: 16 }} onClick={() => setFeedbackForm(true)}>+ {t("senAddFeedback")}</button>
+            )}
+            {readOnly && (
+              <div style={{ background: "var(--surface2)", padding: "10px 14px", borderRadius: "var(--radius-sm)", marginBottom: 16, fontSize: ".8rem", color: "var(--muted)" }}>
+                {it ? "🔒 Accesso in sola lettura — non puoi aggiungere osservazioni." : "🔒 Read-only access — you cannot add observations."}
+              </div>
+            )}
             {plan.feedback.length === 0
               ? <EmptyState emoji="📝" text={t("senNoFeedback")} />
               : plan.feedback.map(f => <FeedbackCard key={f.id} entry={f} t={t} />)
@@ -221,6 +345,35 @@ export default function SENPlan({ child, viewer, family, onBack }) {
         {/* ── AI SUMMARY TAB ── */}
         {activeTab === "summary" && (
           <div>
+            {/* Follow-up milestones */}
+            <div style={{ marginBottom: 4 }}>
+              <h4 style={{ fontFamily: "var(--font-display)", fontSize: ".9rem", color: "#1A4A5C", marginBottom: 10 }}>
+                🗓️ {it ? "Follow-up milestones" : "Follow-up milestones"}
+              </h4>
+              <FollowUpCheckin child={child} lang={lang} onOpenSMQ={() => setShowSMQ(true)} />
+            </div>
+
+            {/* Previous years archive */}
+            <ArchiveBrowser child={child} lang={lang} />
+
+            {/* Archive / new year button — parent only, not teacher, not readOnly */}
+            {isParent && !readOnly && (plan.goals.length > 0 || plan.feedback.length > 0) && (
+              <button
+                className="btn btn-ghost"
+                style={{ width: "100%", marginBottom: 16, borderColor: "#1A4A5C44", color: "#1A4A5C" }}
+                onClick={() => {
+                  if (window.confirm(it
+                    ? "Archiviare il piano attuale e iniziare un nuovo anno scolastico? Il piano precedente rimarrà consultabile."
+                    : "Archive the current plan and start a new school year? The previous plan will remain accessible.")) {
+                    const newPlan = archivePlan(child.id, child.name, plan);
+                    update(newPlan);
+                  }
+                }}
+              >
+                🗄️ {it ? "Archivia e inizia nuovo anno" : "Archive & start new school year"}
+              </button>
+            )}
+
             <div className="card" style={{ marginBottom: 16, background: "linear-gradient(135deg, #1A4A5C11, #2C6B4A11)", borderColor: "#2C6B4A44" }}>
               <p style={{ fontSize: ".88rem", color: "var(--muted)", lineHeight: 1.65 }}>
                 {it
@@ -229,16 +382,18 @@ export default function SENPlan({ child, viewer, family, onBack }) {
               </p>
             </div>
 
-            <button
-              className="btn"
-              style={{ width: "100%", marginBottom: 20, background: "linear-gradient(135deg, #1A4A5C, #2C6B4A)", color: "#fff", border: "none", opacity: plan.feedback.length < 2 ? 0.4 : 1 }}
-              onClick={generateSummary}
-              disabled={plan.feedback.length < 2 || aiLoading}
-            >
-              {aiLoading
-                ? <span style={{ display: "flex", alignItems: "center", gap: 8 }}><Dots /> {t("loading")}</span>
-                : `✨ ${t("senAISummaryBtn")}`}
-            </button>
+            {!readOnly && (
+              <button
+                className="btn"
+                style={{ width: "100%", marginBottom: 20, background: "linear-gradient(135deg, #1A4A5C, #2C6B4A)", color: "#fff", border: "none", opacity: plan.feedback.length < 2 ? 0.4 : 1 }}
+                onClick={generateSummary}
+                disabled={plan.feedback.length < 2 || aiLoading}
+              >
+                {aiLoading
+                  ? <span style={{ display: "flex", alignItems: "center", gap: 8 }}><Dots /> {t("loading")}</span>
+                  : `✨ ${t("senAISummaryBtn")}`}
+              </button>
+            )}
 
             {aiError && <div style={{ background: "#FEE2E2", padding: "12px", borderRadius: "var(--radius-sm)", color: "#B91C1C", fontSize: ".85rem", marginBottom: 16 }}>⚠️ {aiError}</div>}
 
@@ -265,9 +420,11 @@ export default function SENPlan({ child, viewer, family, onBack }) {
 
 // ── Sub-components ────────────────────────────────────────
 
-function GoalCard({ goal, t, it, onToggle, onDelete }) {
+function GoalCard({ goal, t, it, onToggle, onDelete, readOnly = false }) {
   const statusKey = { active: "senGoalActive", achieved: "senGoalAchieved", review: "senGoalReview" };
   const color = STATUS_COLORS[goal.status || "active"];
+  const [showGAS, setShowGAS] = useState(false);
+  const gasTemplates = it ? GAS_TEMPLATES_IT : GAS_TEMPLATES_EN;
   return (
     <div className="card fade-up" style={{ marginBottom: 12, borderLeft: `4px solid ${color}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
@@ -277,16 +434,32 @@ function GoalCard({ goal, t, it, onToggle, onDelete }) {
               {it ? { communication:"Comunicazione", social:"Sociale", learning:"Apprendimento", behaviour:"Comportamento", custom:"Personalizzato" }[goal.area] || goal.area : goal.area}
             </span>
             <span style={{ fontSize: ".72rem", color: "var(--muted)" }}>{t(statusKey[goal.status] || "senGoalActive")}</span>
+            {goal.gas && <span style={{ fontSize: ".72rem", fontWeight: 600, background: "#1A4A5C22", color: "#1A4A5C", padding: "2px 8px", borderRadius: 20, cursor: "pointer" }} onClick={() => setShowGAS(!showGAS)}>📏 GAS</span>}
           </div>
           <p style={{ fontSize: ".93rem", lineHeight: 1.55 }}>{goal.description}</p>
+          {showGAS && goal.gas && (
+            <div style={{ marginTop: 10, background: "var(--surface2)", borderRadius: "var(--radius-sm)", padding: "10px 12px" }}>
+              {gasTemplates.map(({ level, label }) => {
+                const val = goal.gas[String(level)];
+                return val ? (
+                  <div key={level} style={{ display: "flex", gap: 8, marginBottom: 4, fontSize: ".78rem" }}>
+                    <span style={{ fontWeight: 700, color: level < 0 ? "#B91C1C" : level === 0 ? "#1A4A5C" : "#6A9E7B", minWidth: 28 }}>{level > 0 ? "+" : ""}{level}</span>
+                    <span style={{ color: "var(--muted)" }}>{val}</span>
+                  </div>
+                ) : null;
+              })}
+            </div>
+          )}
           <p style={{ fontSize: ".75rem", color: "var(--muted)", marginTop: 6 }}>
             {t("senBy")} {goal.createdBy} · {new Date(goal.createdAt).toLocaleDateString()}
           </p>
         </div>
-        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-          <button onClick={onToggle} style={{ background: color + "22", border: "none", borderRadius: 8, padding: "6px 8px", cursor: "pointer", fontSize: ".8rem", color }}>↻</button>
-          <button onClick={onDelete} style={{ background: "#FEE2E222", border: "none", borderRadius: 8, padding: "6px 8px", cursor: "pointer", fontSize: ".8rem", color: "#B91C1C" }}>✕</button>
-        </div>
+        {!readOnly && (
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            <button onClick={onToggle} style={{ background: color + "22", border: "none", borderRadius: 8, padding: "6px 8px", cursor: "pointer", fontSize: ".8rem", color }}>↻</button>
+            <button onClick={onDelete} style={{ background: "#FEE2E222", border: "none", borderRadius: 8, padding: "6px 8px", cursor: "pointer", fontSize: ".8rem", color: "#B91C1C" }}>✕</button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -335,10 +508,21 @@ function RevisionCard({ rev, t, isParent, onRespond }) {
   );
 }
 
-function GoalForm({ areas, t, it, onSave, onCancel }) {
+function GoalForm({ areas, t, it, lang, onSave, onCancel }) {
   const [area, setArea] = useState("communication");
   const [desc, setDesc] = useState("");
+  const [useGAS, setUseGAS] = useState(false);
+  const [gasLevels, setGasLevels] = useState({ "-2":"", "-1":"", "0":"", "1":"", "2":"" });
   const areaLabels = it ? { communication:"Comunicazione", social:"Sociale", learning:"Apprendimento", behaviour:"Comportamento", custom:"Personalizzato" } : {};
+  const gasTemplates = it ? GAS_TEMPLATES_IT : GAS_TEMPLATES_EN;
+
+  const handleSave = () => {
+    if (!desc.trim()) return;
+    const goal = { area, description: desc.trim(), status: "active" };
+    if (useGAS) goal.gas = gasLevels;
+    onSave(goal);
+  };
+
   return (
     <div className="card" style={{ marginBottom: 16, borderColor: "#2C6B4A" }}>
       <h4 style={{ fontFamily: "var(--font-display)", color: "#1A4A5C", marginBottom: 14 }}>🎯 {t("senAddGoal")}</h4>
@@ -356,9 +540,57 @@ function GoalForm({ areas, t, it, onSave, onCancel }) {
         <label>{t("senGoalDesc")}</label>
         <textarea autoFocus rows={3} value={desc} onChange={e => setDesc(e.target.value)} style={{ resize: "none" }} placeholder={it ? "es. Rispondere verbalmente all'appello entro marzo…" : "e.g. Respond verbally to the register by March…"} />
       </div>
+
+      {/* GAS scaffolding toggle */}
+      <div
+        onClick={() => setUseGAS(!useGAS)}
+        style={{
+          display: "flex", alignItems: "center", gap: 12, padding: "10px 14px",
+          borderRadius: "var(--radius-sm)", cursor: "pointer", marginBottom: 14,
+          background: useGAS ? "#1A4A5C11" : "var(--surface2)",
+          border: `1.5px solid ${useGAS ? "#1A4A5C" : "var(--border)"}`,
+        }}
+      >
+        <div style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${useGAS ? "#1A4A5C" : "var(--border)"}`, background: useGAS ? "#1A4A5C" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          {useGAS && <span style={{ color: "#fff", fontSize: ".75rem" }}>✓</span>}
+        </div>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: ".88rem", color: "#1A4A5C" }}>
+            📏 {it ? "Aggiungi scala GAS" : "Add GAS scale"} ({it ? "Opzionale" : "Optional"})
+          </div>
+          <div style={{ fontSize: ".75rem", color: "var(--muted)" }}>
+            {it ? "Goal Attainment Scaling — definisci 5 livelli di risultato" : "Goal Attainment Scaling — define 5 outcome levels"}
+          </div>
+        </div>
+      </div>
+
+      {useGAS && (
+        <div style={{ marginBottom: 14 }}>
+          {gasTemplates.map(({ level, label, desc: hint }) => (
+            <div key={level} style={{ marginBottom: 10 }}>
+              <label style={{ color: level < 0 ? "#B91C1C" : level === 0 ? "#1A4A5C" : "#6A9E7B" }}>
+                {level > 0 ? "+" : ""}{level}  {label}
+              </label>
+              <input
+                type="text"
+                value={gasLevels[String(level)]}
+                onChange={e => setGasLevels(prev => ({ ...prev, [String(level)]: e.target.value }))}
+                placeholder={hint}
+                style={{ fontSize: ".88rem" }}
+              />
+            </div>
+          ))}
+          <p style={{ fontSize: ".72rem", color: "var(--muted)", lineHeight: 1.5 }}>
+            {it
+              ? "GAS — Kiresuk & Sherman (1968). Scala di misurazione degli obiettivi a 5 livelli centrata su 0 (livello atteso). Usata nelle revisioni del piano."
+              : "GAS — Kiresuk & Sherman (1968). 5-level goal-centred scale anchored at 0 (expected). Used at plan review to score progress."}
+          </p>
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 10 }}>
         <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onCancel}>{t("cancel")}</button>
-        <button className="btn" style={{ flex: 1, background: "#1A4A5C", color: "#fff", border: "none" }} onClick={() => { if (desc.trim()) onSave({ area, description: desc.trim(), status: "active" }); }} disabled={!desc.trim()}>{t("save")}</button>
+        <button className="btn" style={{ flex: 1, background: "#1A4A5C", color: "#fff", border: "none" }} onClick={handleSave} disabled={!desc.trim()}>{t("save")}</button>
       </div>
     </div>
   );
