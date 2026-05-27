@@ -109,6 +109,7 @@ export default function App() {
 /* ── Home Screen ──────────────────────────────────────── */
 function Home({ family, onOpenMember, onNav }) {
   const t = getT(family?.language || "en");
+  const it = (family?.language || "en") === "it";
   const members = family.members || [];
   const hasParent = members.some(m => PARENT_ROLES.includes(m.role));
   const childrenWithTools = members.filter(m => ["child","sibling"].includes(m.role));
@@ -183,6 +184,16 @@ function Home({ family, onOpenMember, onNav }) {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 28 }}>
             <SpaceCard emoji="📋" label={t("familyBoard")} color="var(--primary)" onClick={() => onNav("board")} />
             <SpaceCard emoji="🤝" label={t("friendsRelatives")} color="var(--ms)" onClick={() => onNav("friends")} badge={msMembers.length > 0 ? msMembers.length : null} />
+          </div>
+
+          {/* Tulia platform footer */}
+          <div style={{ textAlign: "center", paddingBottom: 32, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+            <p style={{ fontSize: ".70rem", color: "var(--muted)" }}>
+              Haven · {t("byTulia")} · <a href="https://tulia.ie" target="_blank" rel="noopener noreferrer" style={{ color: "var(--primary)", textDecoration: "none" }}>tulia.ie</a>
+            </p>
+            <p style={{ fontSize: ".68rem", color: "var(--muted)", marginTop: 4 }}>
+              {t("notForClinical")}
+            </p>
           </div>
         </div>
       </div>
