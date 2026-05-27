@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from "react";
 import { getT } from "../i18n.js";
 import { buildSystemPrompt } from "../prompts.js";
 import { trackChatSession, touchLastActivity } from "../metrics.js";
+import ClinicalDisclaimer from "./ClinicalDisclaimer.jsx";
+import DependencyNudge, { incrementNudgeSession } from "./DependencyNudge.jsx";
 
 const MODEL = "claude-sonnet-4-20250514";
 
@@ -36,6 +38,7 @@ export default function Chat({ member, family, onBack }) {
     setLoading(true);
     trackChatSession(member.role);
     touchLastActivity(member.role);
+    incrementNudgeSession(member.id);
 
     try {
       const resp = await fetch("/api/claude", {
@@ -80,8 +83,13 @@ export default function Chat({ member, family, onBack }) {
         </div>
       </div>
 
+      {/* Clinical disclaimer — shown for adult roles */}
+      <ClinicalDisclaimer role={member.role} lang={family?.language || "en"} />
+
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 8px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* Dependency nudge — shown every 5 sessions for non-child roles */}
+        <DependencyNudge member={member} lang={family?.language || "en"} />
         {messages.map((m, i) => (
           <div key={i} style={{
             display: "flex",
