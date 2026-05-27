@@ -5,7 +5,8 @@ import InactivityPrompt from "./InactivityPrompt.jsx";
 import FidelityBadge from "./FidelityBadge.jsx";
 import FollowUpCheckin, { initFollowUp } from "./FollowUpCheckin.jsx";
 import { ArchiveBrowser, archivePlan } from "./SENArchive.jsx";
-import { trackFeedbackEntry, trackGoalCreated, trackGoalStatusChange, trackRevision, trackSMQ, touchLastActivity } from "../metrics.js";
+import { buildSENSynthesisPrompt } from "../prompts.js";
+import { trackFeedbackEntry, trackGoalCreated, trackGoalStatusChange, trackRevision, touchLastActivity } from "../metrics.js";
 
 const SEN_KEY = "haven_sen_v1";
 const MODEL   = "claude-sonnet-4-20250514";
@@ -123,19 +124,12 @@ export default function SENPlan({ child, viewer, family, onBack, readOnly = fals
   const generateSummary = async () => {
     if (plan.feedback.length < 2) return;
     setAiLoading(true); setAiError(null);
-    const feedbackText = plan.feedback.slice(0,15).map(f =>
-      `[${f.role} - ${new Date(f.timestamp).toLocaleDateString()}]: ${f.text}`
-    ).join("\n");
-    const goalText = plan.goals.map(g => `[${g.area}] ${g.description} (${g.status})`).join("\n");
-    const prompt = it
-      ? `Sei un esperto di bisogni educativi speciali e mutismo selettivo. Analizza queste osservazioni e obiettivi del PEI/PDP di ${child.name} e genera una sintesi clinicamente utile (max 200 parole) che:\n1. Evidenzi i pattern emergenti\n2. Segnali progressi o regressioni\n3. Proponga 1-2 possibili aggiustamenti al piano\n\nObiettivi:\n${goalText}\n\nOsservazioni recenti:\n${feedbackText}\n\nScrivi in italiano. Tono professionale ma leggibile da genitori e insegnanti.`
-      : `You are an expert in special educational needs and selective mutism. Analyse these observations and goals from ${child.name}'s SEN Plan and generate a clinically useful synthesis (max 200 words) that:\n1. Highlights emerging patterns\n2. Flags progress or regression\n3. Suggests 1-2 possible plan adjustments\n\nGoals:\n${goalText}\n\nRecent observations:\n${feedbackText}\n\nProfessional but readable by both parents and teachers.`;
-
+    const prompt = buildSENSynthesisPrompt(child, plan, lang);
     try {
       const resp = await fetch("/api/claude", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: MODEL, max_tokens: 500, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: MODEL, max_tokens: 600, messages: [{ role: "user", content: prompt }] }),
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error.message || data.error);
@@ -195,14 +189,12 @@ export default function SENPlan({ child, viewer, family, onBack, readOnly = fals
           <div className="card" style={{ width: "100%", maxWidth: 520, borderRadius: "20px 20px 0 0", padding: "24px 20px", animation: "fadeUp .2s ease" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <h3 style={{ fontFamily: "var(--font-display)", color: "#B91C1C", fontSize: "1.1rem" }}>
-                🆘 {it ? "Escalation — Contatti di supporto" : "Escalation — Support contacts"}
+                🔗 {t("crisisTitle")}
               </h3>
               <button className="btn btn-ghost btn-sm" onClick={() => setShowCrisis(false)}>✕</button>
             </div>
             <p style={{ fontSize: ".82rem", color: "var(--muted)", lineHeight: 1.6, marginBottom: 16 }}>
-              {it
-                ? "Haven è uno strumento educativo e non può fornire supporto clinico diretto. Se sei preoccupato per il benessere di uno studente, contatta uno dei seguenti servizi."
-                : "Haven is an educational tool and cannot provide direct clinical support. If you are concerned about a student's wellbeing, contact one of the following services."}
+              {t("crisisIntro")}
             </p>
             {(CRISIS_CONTACTS[it ? "it" : "en"]).map((c, i) => (
               <a key={i} href={c.url} target="_blank" rel="noopener noreferrer"
@@ -212,9 +204,7 @@ export default function SENPlan({ child, viewer, family, onBack, readOnly = fals
               </a>
             ))}
             <p style={{ fontSize: ".72rem", color: "var(--muted)", marginTop: 12, lineHeight: 1.5 }}>
-              {it
-                ? "Questi link portano a servizi esterni. Haven non è affiliata con nessuno di questi enti."
-                : "These links lead to external services. Haven is not affiliated with any of these organisations."}
+              {t("crisisNotClinical")}
             </p>
           </div>
         </div>
@@ -241,10 +231,10 @@ export default function SENPlan({ child, viewer, family, onBack, readOnly = fals
                 📊 SMQ
               </button>
             )}
-            {/* Crisis button — teacher only, always visible */}
+            {/* Signposting button — teacher and SNA, user-triggered only */}
             {(isTeacher || isSNA) && (
-              <button onClick={() => setShowCrisis(true)} style={{ background: "rgba(220,38,38,.8)", border: "none", borderRadius: 8, padding: "7px 10px", cursor: "pointer", color: "#fff", fontSize: ".78rem", fontWeight: 700 }}>
-                🆘
+              <button onClick={() => setShowCrisis(true)} style={{ background: "rgba(255,255,255,.15)", border: "1.5px solid rgba(255,255,255,.4)", borderRadius: 8, padding: "7px 10px", cursor: "pointer", color: "#fff", fontSize: ".78rem", fontWeight: 600 }}>
+                🔗 {it ? "Segnalazione" : "Signposting"}
               </button>
             )}
             <button onClick={exportPlan} style={{ background: "rgba(255,255,255,.15)", border: "none", borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: "#fff", fontSize: ".82rem", fontWeight: 600 }}>
@@ -406,7 +396,7 @@ export default function SENPlan({ child, viewer, family, onBack, readOnly = fals
                 <p style={{ fontSize: ".92rem", lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{plan.aiSummary.text}</p>
                 <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
                   <p style={{ fontSize: ".75rem", color: "var(--muted)" }}>
-                    {it ? "⚠️ Sintesi generata da AI a supporto decisionale. Non sostituisce valutazione professionale." : "⚠️ AI-generated synthesis for decision support. Does not replace professional assessment."}
+                    ⚠️ {t("aiDisclaimer")}
                   </p>
                 </div>
               </div>
