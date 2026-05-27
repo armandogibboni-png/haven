@@ -96,6 +96,9 @@ export default function Enrollment({ onComplete }) {
       <div style={{ fontSize: "4rem", animation: "pulse 3s infinite" }}>🏡</div>
       <div>
         <h1 style={{ fontFamily: "var(--font-display)", color: "#fff", fontSize: "2.4rem", fontWeight: 400, marginBottom: 12 }}>Haven</h1>
+        <p style={{ color: "rgba(255,255,255,.55)", fontSize: ".78rem", marginBottom: 8 }}>
+          {t("byTulia")} · tulia.ie
+        </p>
         <p style={{ color: "rgba(255,255,255,.75)", fontSize: "1.05rem", lineHeight: 1.6, maxWidth: 300 }}>
           {t("welcomeSub")}
         </p>
@@ -103,6 +106,9 @@ export default function Enrollment({ onComplete }) {
       <button className="btn" onClick={() => setStep(1)} style={{ background: "rgba(255,255,255,.15)", color: "#fff", border: "1.5px solid rgba(255,255,255,.3)", fontSize: "1rem", padding: "14px 32px", marginTop: 8 }}>
         Get started →
       </button>
+      <p style={{ color: "rgba(255,255,255,.4)", fontSize: ".68rem", maxWidth: 260, lineHeight: 1.5 }}>
+        {t("notMedicalDevice")}
+      </p>
     </div>
   );
 
