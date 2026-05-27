@@ -42,6 +42,29 @@ export default function ConsentScreen({ lang = "en", onAccept, onDecline }) {
               ? "Haven tratta alcuni tuoi dati. Prenditi un momento per capire come."
               : "Haven processes some of your data. Please take a moment to understand how."}
           </p>
+          {/* Tulia branding */}
+          <p style={{ fontSize: ".72rem", color: "var(--muted)", marginTop: 8 }}>
+            {it ? "Parte della piattaforma Tulia" : "Part of the Tulia platform"} · <a href="https://tulia.ie" target="_blank" rel="noopener noreferrer" style={{ color: "var(--primary)" }}>tulia.ie</a>
+          </p>
+        </div>
+
+        {/* What Haven is NOT — bible v3 requirement */}
+        <div style={{
+          background: "#FEF3C7", border: "1.5px solid #F59E0B55",
+          borderRadius: "var(--radius-sm)", padding: "12px 16px",
+          marginBottom: 16, display: "flex", gap: 10, alignItems: "flex-start",
+        }}>
+          <span style={{ fontSize: "1rem", flexShrink: 0 }}>⚠️</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: ".85rem", color: "#92400E", marginBottom: 4 }}>
+              {it ? "Cosa Haven NON è" : "What Haven is not"}
+            </div>
+            <p style={{ fontSize: ".80rem", color: "#78350F", lineHeight: 1.6 }}>
+              {it
+                ? "Haven non è un dispositivo medico e non fornisce valutazione clinica, diagnosi o intervento di crisi. Se hai bisogno di supporto urgente, contatta un professionista della salute."
+                : "Haven is not a medical device and does not provide clinical assessment, diagnosis, or crisis intervention. If you need urgent support, please contact a healthcare professional."}
+            </p>
+          </div>
         </div>
 
         {/* Summary cards */}
